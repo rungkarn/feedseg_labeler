@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ลาเบลเม็ดอาหาร</title>
+<style>
+:root{
+  --bg:#1f2d3a; --panel:#2f4254; --fg:#ecf0f1; --blue:#3498db; --green:#27ae60;
+  --muted:#9aa8b3; --sel:#f1c40f; --warn:#e67e22;
+  --sz:clamp(130px, min(calc((100vw - 28px) / 2), calc(100vh - 290px)), 480px);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:Tahoma,"Noto Sans Thai",system-ui,sans-serif}
+body{min-height:100vh;display:flex;flex-direction:column}
+header{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;padding:4px 10px;background:#16222d}
+header b{font-size:15px}
+.chip{padding:1px 9px;border-radius:12px;background:var(--panel);font-size:12px}
+.chip.ok{background:#1e6b3c}.chip.warn{background:#8a6d1a}.chip.err{background:#8a2a22}
+.spacer{flex:1}
+#bar{height:5px;background:#13202b}
+#bar i{display:block;height:100%;width:0;background:var(--green);transition:width .2s}
+main{flex:1;display:flex;flex-direction:column;align-items:center;padding:6px 8px 10px;gap:6px}
+.views{display:flex;gap:8px;justify-content:center;width:100%;position:relative}
+.view{width:var(--sz);height:var(--sz);position:relative;background:#000;border:2px solid var(--panel)}
+.view img,.view canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.view .tag{position:absolute;left:3px;top:2px;font-size:10px;color:#fff;background:rgba(0,0,0,.55);padding:0 4px;border-radius:3px;z-index:2}
+#info{font-size:13px;text-align:center;line-height:1.35;max-width:960px}
+#info .unc{color:var(--warn);font-weight:bold}
+#info .dim{color:var(--muted)}
+#feedback{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;pointer-events:none;
+  max-width:92%;padding:6px 18px;border-radius:12px;background:rgba(20,30,40,.85);box-shadow:0 2px 12px rgba(0,0,0,.5);
+  font-size:26px;font-weight:bold;color:#2ecc71;text-align:center;line-height:1.3}
+#feedback:empty{display:none}
+#feedback.kept{font-size:15px;padding:3px 10px;top:auto;bottom:6px;transform:translate(-50%,0);opacity:.92}
+button{font:inherit;font-size:13px;color:var(--fg);background:var(--blue);border:0;border-radius:4px;padding:6px 10px;cursor:pointer}
+button:disabled{opacity:.4;cursor:default}
+button.green{background:var(--green)}
+button.ghost{background:var(--panel)}
+.classes{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;width:100%;max-width:960px}
+.classes button{background:var(--panel);font-weight:bold;padding:7px 3px;border:2px solid transparent;line-height:1.2;font-size:13px}
+.classes button small{display:block;font-weight:normal;color:var(--muted);font-size:11px}
+.classes button.on{border-color:var(--sel);background:#0a0909;color:var(--sel)}
+.flags{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.flags button{background:var(--panel);border:2px solid transparent}
+.flags button.on{border-color:var(--warn);color:var(--warn);background:#0a0909}
+.controls{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.keys{font-size:11px;color:var(--muted);text-align:center;max-width:960px}
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
+#overlay.show{display:flex}
+.card{background:var(--bg);border:2px solid var(--blue);border-radius:8px;padding:18px;max-width:560px;width:100%;max-height:92vh;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.card input[type=text]{font:inherit;padding:8px;border-radius:4px;border:0;background:var(--panel);color:var(--fg)}
+.card ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:5px;font-size:14px}
+.packs{display:flex;flex-direction:column;gap:6px}
+.packs button{text-align:left;background:var(--panel)}
+.packs button.done{border-left:5px solid var(--green)}
+@media (max-height:700px) and (min-width:701px){ .keys{display:none} }
+@media (max-width:700px){
+  .classes{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .keys{display:none}
+  main{padding:4px}
+  .views{gap:4px}
+  #feedback{font-size:18px;padding:4px 10px}
+  #feedback.kept{font-size:12px}
+  :root{--sz:clamp(120px, min(calc((100vw - 16px) / 2), calc(100vh - 330px)), 480px)}
+}
+</style>
+</head>
+<body>
+<header>
+  <b>เม็ดอาหาร</b>
+  <span class="chip" id="chipPack">pack: -</span>
+  <span class="chip" id="chipUser">user: -</span>
+  <span class="chip" id="chipCount">0 / 0</span>
+  <span class="spacer"></span>
+  <span class="chip" id="chipSync">sync: -</span>
+</header>
+<div id="bar"><i></i></div>
+
+<main>
+  <div class="views">
+    <div class="view"><span class="tag">ภาพจริง</span><img id="imgRaw" alt=""></div>
+    <div class="view" id="vOut"><span class="tag">เส้นขอบ</span><img id="imgOut" alt=""><canvas id="cv"></canvas></div>
+    <div id="feedback" aria-live="polite"></div>
+  </div>
+  <div id="info">&nbsp;</div>
+
+  <div class="classes" id="classes"></div>
+  <div class="flags" id="flags"></div>
+
+  <div class="controls">
+    <button id="bPrev" class="ghost">◀ ย้อน</button>
+    <button id="bNext" class="ghost">ถัดไป ▶</button>
+    <button id="bTodo" class="ghost">ยังไม่ตอบ (n)</button>
+    <button id="bSave" class="green">บันทึก (s)</button>
+    <button id="bCsv" class="ghost">Download CSV</button>
+    <button id="bUser" class="ghost">เปลี่ยนชื่อ</button>
+    <button id="bHelp" class="ghost">วิธีใช้</button>
+  </div>
+  <div class="keys">
+    1–6 เลือกคำตอบ (ไปเม็ดถัดไปเอง) · 0 ล้าง · c ร้าว · x บิ่น · e ขอบผิด · o เปิด/ปิดเส้นขอบ · Space/→/d ถัดไป · Backspace/←/a ย้อน · n ยังไม่ตอบ · s บันทึก
+  </div>
+</main>
+
+<div id="overlay"><div class="card" id="card"></div></div>
+
+<script>
+"use strict";
+const FLUSH_EVERY = 10, FLUSH_MS = 15000, BATCH = 200, PREFETCH = 6, ADVANCE_MS = 600;
+const NAME_RE = /[^\w฀-๿-]/g;
+
+// classes: code = key number (CONTRACT)
+const CLASSES = [
+  {code:1, key:"1", value:"pellet_lying",   label:"เม็ดนอน",        hint:""},
+  {code:2, key:"2", value:"pellet_standing",label:"เม็ดตั้ง",        hint:""},
+  {code:3, key:"3", value:"uncertain",      label:"ไม่แน่ใจ",        hint:""},
+  {code:4, key:"4", value:"broken",         label:"หัก",            hint:"เหลือ < ครึ่ง"},
+  {code:5, key:"5", value:"clump",          label:"กอง/ติดกัน",      hint:"หลายเม็ด"},
+  {code:6, key:"6", value:"not_pellet",     label:"ไม่ใช่เม็ด",      hint:"ฝุ่น ริ้ว เงา"},
+];
+const FLAGS = [
+  {k:"c", code:"KeyC", label:"ร้าว",   hint:"cracked"},
+  {k:"x", code:"KeyX", label:"บิ่น",   hint:"> ครึ่งเม็ด"},
+  {k:"e", code:"KeyE", label:"ขอบผิด", hint:"เส้นขอบไม่ตรง"},
+];
+const AUTO_NAME = {pellet_lying:"เม็ดนอน", pellet_standing:"เม็ดตั้ง", broken:"หัก", clump:"กอง/ติดกัน", debris:"ฝุ่น/เศษ"};
+
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+const S = {
+  cfg: {endpoint:"", token:"", packsBase:""},
+  pack: qs.get("pack") || "",
+  user: "",
+  manifest: null,
+  items: [],
+  labels: {},       // aid -> {c, f, t(ms)}  (c = -1 never stored, deleted instead)
+  pend: {},         // aid -> flags typed before the class was chosen
+  queue: [],        // unsent rows
+  idx: 0, inflight: false, retryDelay: FLUSH_MS, lastError: "",
+  showOutline: true, flash: false, timer: null,
+};
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const clsOf = code => CLASSES.find(c => c.code === code);
+
+// ---- safe storage (prefix fsl:) ----
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
+};
+const lkey = () => `fsl:lab:${S.pack}:${S.user}`;
+const qkey = () => `fsl:q:${S.pack}:${S.user}`;
+const pkey = () => `fsl:pos:${S.pack}:${S.user}`;
+const skey = () => `fsl:seen`;
+function persist(){
+  store.set(lkey(), JSON.stringify(S.labels));
+  store.set(qkey(), JSON.stringify(S.queue));
+}
+const packsBase = () => S.cfg.packsBase ? S.cfg.packsBase.replace(/\/+$/, "") + "/" : "";
+const packUrl = p => `${packsBase()}packs/${encodeURIComponent(S.pack)}/${p}`;
+const key = it => String(it.aid);
+
+// ---- dialogs ----
+function dialog(html){ $("card").innerHTML = html; $("overlay").classList.add("show"); }
+function closeDialog(){ $("overlay").classList.remove("show"); }
+
+function askName(){
+  return new Promise(res => {
+    dialog(`<h3 style="margin:0">ใส่ชื่อผู้ตอบ</h3>
+      <div style="color:var(--muted);font-size:13px">ตัวอักษร/ตัวเลข/ขีด ไม่เกิน 30 ตัว ใช้แยกผลของแต่ละคนและคืนสถานะเมื่อเปิดซ้ำ</div>
+      <input type="text" id="nameIn" maxlength="30" value="${esc(S.user)}">
+      <button id="nameOk">ตกลง</button>`);
+    const ok = () => {
+      const v = $("nameIn").value.trim().replace(NAME_RE, "");
+      if(!v) return;
+      closeDialog(); res(v);
+    };
+    $("nameOk").onclick = ok;
+    $("nameIn").onkeydown = e => { e.stopPropagation(); if(e.key === "Enter") ok(); };
+    $("nameIn").focus();
+  });
+}
+
+function showHelp(first){
+  dialog(`<h3 style="margin:0">วิธีใช้</h3>
+    <ul>
+      <li>ซ้าย = ภาพจริง, ขวา = ภาพเดียวกันพร้อมเส้นขอบของเม็ดที่ถาม (กด <b>o</b> ซ่อนเส้น)</li>
+      <li>ดูเม็ดที่อยู่ตรงกลางภาพ แล้วกด <b>1–6</b> (หรือปุ่ม) จะไปเม็ดถัดไปเอง</li>
+      <li><b>3 ไม่แน่ใจ</b> ใช้เมื่อดูไม่ออกจริง ๆ อย่าเดา</li>
+      <li><b>c ร้าว · x บิ่น (เหลือมากกว่าครึ่ง) · e ขอบผิด</b> กดเพิ่มได้ ไม่เลื่อนไปเม็ดอื่น</li>
+      <li><b>0</b> ล้างคำตอบ · <b>n</b> ไปเม็ดที่ยังไม่ตอบ · <b>s</b> ส่งทันที</li>
+      <li>ข้อมูลส่งอัตโนมัติ ปิดแท็บหรือเน็ตหลุดไม่หาย (เก็บไว้ในเครื่องแล้วส่งซ้ำ)</li>
+    </ul>
+    <button id="dOk">${first ? "เข้าใจแล้ว เริ่มเลย" : "ปิด"}</button>`);
+  $("dOk").onclick = () => { closeDialog(); if(first) store.set(skey(), "1"); };
+}
+
+// ---- sync ----
+function setSync(text, cls){ const c = $("chipSync"); c.textContent = "sync: " + text; c.className = "chip " + (cls || ""); }
+function updateSyncChip(){
+  if(!S.cfg.endpoint){ setSync("ไม่ได้ตั้งค่า (ใช้ Download CSV)", "warn"); return; }
+  if(S.lastError){ setSync(`ส่งไม่สำเร็จ (${S.queue.length} รอส่ง)`, "err"); return; }
+  if(S.inflight){ setSync("กำลังส่ง…", "warn"); return; }
+  setSync(S.queue.length ? `รอส่ง ${S.queue.length}` : "ส่งครบแล้ว ✓", S.queue.length ? "warn" : "ok");
+}
+const bodyOf = rows => JSON.stringify({token:S.cfg.token, user:S.user, pack:S.pack, rows});
+async function flush(){
+  if(!S.cfg.endpoint || S.inflight || !S.queue.length){ updateSyncChip(); return; }
+  S.inflight = true; updateSyncChip();
+  const batch = S.queue.slice(0, BATCH);
+  try{
+    const r = await fetch(S.cfg.endpoint, {
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},   // simple request: no CORS preflight
+      body: bodyOf(batch),
+    });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error || "server error");
+    if(j.n !== batch.length) throw new Error(`server รับ ${j.n}/${batch.length} แถว`);
+    S.queue.splice(0, batch.length);
+    S.lastError = ""; S.retryDelay = FLUSH_MS;
+    persist();
+  }catch(e){
+    S.lastError = String(e.message || e);
+    S.retryDelay = Math.min(S.retryDelay * 2, 120000);
+  }
+  S.inflight = false; updateSyncChip();
+  if(S.queue.length && !S.lastError) flush();
+}
+setInterval(() => flush(), FLUSH_MS);
+// retry after error with exponential backoff (retryDelay doubles on each failure)
+let _lastTry = 0;
+setInterval(() => {
+  if(S.lastError && Date.now() - _lastTry >= S.retryDelay){ _lastTry = Date.now(); S.lastError = ""; flush(); }
+}, 5000);
+window.addEventListener("online", () => { S.lastError = ""; flush(); });
+function beaconFlush(){
+  if(!S.cfg.endpoint || !S.queue.length || !navigator.sendBeacon || !S.user) return;
+  try{ navigator.sendBeacon(S.cfg.endpoint, new Blob([bodyOf(S.queue.slice(0, BATCH))], {type:"text/plain;charset=utf-8"})); }catch(e){}
+}
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "hidden"){ persist(); beaconFlush(); } });
+window.addEventListener("pagehide", () => { persist(); beaconFlush(); });
+
+// restore from dump: rows in append order, later row wins; remote applied if newer than local
+async function pullRemote(){
+  if(!S.cfg.endpoint) return;
+  try{
+    const u = `${S.cfg.endpoint}${S.cfg.endpoint.includes("?") ? "&" : "?"}action=dump&pack=${encodeURIComponent(S.pack)}&user=${encodeURIComponent(S.user)}&token=${encodeURIComponent(S.cfg.token)}`;
+    const j = await (await fetch(u)).json();
+    if(!j.ok) return;
+    const latest = {};
+    for(const r of (j.rows || [])){
+      // [ts, user, pack, image_id, aid, cls, flags, auto, client_ts]
+      if(String(r[1]) !== S.user || String(r[2]) !== S.pack) continue;
+      latest[String(r[4])] = {c:Number(r[5]), f:String(r[6] || ""), t:Date.parse(r[8]) || Date.parse(r[0]) || 0};
+    }
+    const valid = new Set(S.items.map(key));
+    for(const [a, v] of Object.entries(latest)){
+      if(!valid.has(a)) continue;
+      const cur = S.labels[a];
+      if(cur && cur.t >= v.t) continue;
+      if(v.c < 0) delete S.labels[a]; else S.labels[a] = v;
+    }
+    persist();
+  }catch(e){ /* offline: local only */ }
+}
+
+// ---- labelling ----
+const curItem = () => S.items[S.idx];
+const curLab = () => { const it = curItem(); return it ? S.labels[key(it)] : null; };
+function pushRow(it, c, f){
+  S.queue.push({image_id:S.manifest.image_id, aid:it.aid, cls:c, flags:f, auto:it.auto || "", t:new Date().toISOString()});
+}
+function setLabel(c){
+  const it = curItem(); if(!it) return;
+  if(c >= 0 && !clsOf(c)) return;
+  const k = key(it), old = S.labels[k];
+  cancelAdvance();
+  if(c < 0){
+    if(!old) { render(); return; }
+    delete S.labels[k]; delete S.pend[k];
+    pushRow(it, -1, "");
+  }else{
+    const f = old ? old.f : (S.pend[k] || "");
+    S.labels[k] = {c, f, t:Date.now()}; delete S.pend[k];
+    pushRow(it, c, f);
+    S.flash = true;
+    const at = S.idx;
+    S.timer = setTimeout(() => {
+      S.timer = null; S.flash = false;
+      if(S.idx === at && at < S.items.length - 1) go(at + 1); else render();
+    }, ADVANCE_MS);
+  }
+  persist(); render();
+  if(S.queue.length >= FLUSH_EVERY) flush();
+}
+function toggleFlag(ch){
+  const it = curItem(); if(!it) return;
+  const k = key(it), lab = S.labels[k];
+  const cur = lab ? lab.f : (S.pend[k] || "");
+  const set = new Set(cur.split("").filter(Boolean));
+  if(set.has(ch)) set.delete(ch); else set.add(ch);
+  const f = Array.from(set).sort().join("");
+  if(lab){
+    cancelAdvance();   // user is still on this pellet: stay
+    lab.f = f; lab.t = Date.now();
+    pushRow(it, lab.c, f);
+    persist();
+    if(S.queue.length >= FLUSH_EVERY) flush();
+  }else{
+    S.pend[k] = f;
+  }
+  render();
+}
+function cancelAdvance(){ if(S.timer){ clearTimeout(S.timer); S.timer = null; } S.flash = false; }
+function go(i){
+  cancelAdvance();
+  if(i < 0 || i >= S.items.length) return;
+  S.idx = i; store.set(pkey(), String(i)); render();
+}
+function nextTodo(from){
+  const n = S.items.length;
+  for(let k = 1; k <= n; k++){
+    const i = (from + k) % n;
+    if(!S.labels[key(S.items[i])]) return i;
+  }
+  return -1;
+}
+
+// ---- rendering ----
+const preloaded = new Map();
+function preload(i){
+  if(i < 0 || i >= S.items.length) return;
+  const a = S.items[i].aid;
+  if(preloaded.has(a)) return;
+  const im = new Image(); im.src = packUrl(`${a}.jpg`);
+  preloaded.set(a, im);
+  if(preloaded.size > 60) preloaded.delete(preloaded.keys().next().value);
+}
+function drawPoly(it){
+  const cv = $("cv"), crop = S.manifest.crop || 384;
+  cv.width = crop; cv.height = crop;
+  const g = cv.getContext("2d");
+  g.clearRect(0, 0, crop, crop);
+  if(!S.showOutline || !it.poly || it.poly.length < 2) return;
+  g.lineJoin = "round";
+  g.beginPath();
+  it.poly.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]));
+  g.closePath();
+  g.strokeStyle = "rgba(0,0,0,.6)"; g.lineWidth = 3.2; g.stroke();   // dark under-stroke for contrast
+  g.strokeStyle = "#39ff6a"; g.lineWidth = 1.6; g.stroke();
+}
+function render(){
+  const n = S.items.length;
+  const done = Object.keys(S.labels).length;
+  $("chipCount").textContent = `ตอบแล้ว ${done} / ${n}`;
+  $("bar").firstElementChild.style.width = n ? (100 * done / n) + "%" : "0";
+  if(!n) return;
+  const it = curItem(), k = key(it);
+  $("imgRaw").src = packUrl(`${it.aid}.jpg`);
+  $("imgOut").src = packUrl(`${it.aid}.jpg`);
+  drawPoly(it);
+  $("vOut").querySelector(".tag").style.display = S.showOutline ? "" : "none";
+  const auto = AUTO_NAME[it.auto] || it.auto || "-";
+  $("info").innerHTML =
+    `ระบบเดา: <b>${esc(auto)}</b> · ${esc(it.len_mm)} × ${esc(it.wid_mm)} mm` +
+    (it.unc ? ` · <span class="unc">ระบบไม่แน่ใจ</span>` : "") +
+    ` · <span class="dim">check ${esc(it.check)} · aid ${esc(it.aid)}</span> · <b>${S.idx + 1} / ${n}</b>`;
+  document.title = `เม็ด ${S.idx + 1}/${n} · ${S.pack}`;
+  const lab = S.labels[k], c = lab ? lab.c : -1;
+  const flags = lab ? lab.f : (S.pend[k] || "");
+  document.querySelectorAll("#classes button").forEach(b => b.classList.toggle("on", +b.dataset.c === c));
+  document.querySelectorAll("#flags button[data-f]").forEach(b => b.classList.toggle("on", flags.includes(b.dataset.f)));
+  $("bOutline").classList.toggle("on", S.showOutline);
+  const cl = clsOf(c);
+  $("feedback").textContent = !cl ? "" : (S.flash ? "✅ " : "📌 ") + cl.label;
+  $("feedback").className = S.flash ? "flash" : "kept";
+  $("bPrev").disabled = S.idx === 0;
+  $("bNext").disabled = S.idx >= n - 1;
+  for(let j = 1; j <= PREFETCH; j++) preload(S.idx + j);
+  preload(S.idx - 1);
+  updateSyncChip();
+  if(done === n && !S._doneShown){
+    S._doneShown = true;
+    dialog(`<h3 style="margin:0">ตอบครบทุกเม็ดแล้ว 🎉</h3>
+      <div>ข้อมูลถูกส่งอัตโนมัติ${S.cfg.endpoint ? "" : " — <b>ยังไม่ได้ตั้งค่าเซิร์ฟเวอร์ กรุณากด Download CSV แล้วส่งให้ผู้ดูแล</b>"}</div>
+      <button id="dOk">ตกลง</button>`);
+    $("dOk").onclick = () => { closeDialog(); flush(); };
+  }
+}
+
+function buildCsv(){
+  const lines = ["image_id,aid,cls,flags,auto"];
+  for(const it of S.items){
+    const l = S.labels[key(it)]; if(!l) continue;
+    lines.push(`${S.manifest.image_id},${it.aid},${l.c},${l.f},${it.auto || ""}`);
+  }
+  return lines.join("\n") + "\n";
+}
+function downloadCsv(){
+  const blob = new Blob([buildCsv()], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `labels_${S.pack}_${S.user}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ---- input: e.code so a Thai keyboard layout works ----
+function onKey(e){
+  if($("overlay").classList.contains("show")) return;
+  const t = e.target && e.target.tagName;
+  if(t === "INPUT" && e.target.type !== "checkbox") return;
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const c = e.code;
+  let handled = true, m;
+  if(c === "Space" || c === "ArrowRight" || c === "KeyD") go(S.idx + 1);
+  else if(c === "Backspace" || c === "ArrowLeft" || c === "KeyA") go(S.idx - 1);
+  else if((m = /^(?:Digit|Numpad)([1-9])$/.exec(c))){
+    const cl = CLASSES.find(x => x.key === m[1]);
+    if(cl) setLabel(cl.code); else handled = false;
+  }
+  else if(c === "Digit0" || c === "Numpad0" || c === "Delete") setLabel(-1);
+  else if(c === "KeyC" || c === "KeyX" || c === "KeyE") toggleFlag(FLAGS.find(f => f.code === c).k);
+  else if(c === "KeyO"){ S.showOutline = !S.showOutline; render(); }
+  else if(c === "KeyS") saveNow();
+  else if(c === "KeyN") jumpTodo();
+  else handled = false;
+  if(handled) e.preventDefault();
+}
+function jumpTodo(){
+  const i = nextTodo(S.idx);
+  if(i < 0){ setSync("ไม่มีเม็ดที่ยังไม่ตอบแล้ว", "ok"); setTimeout(updateSyncChip, 2000); } else go(i);
+}
+async function saveNow(){ persist(); S.lastError = ""; await flush(); }
+async function renameUser(){
+  persist();
+  const v = await askName();
+  const u = new URL(location.href); u.searchParams.set("u", v); store.set("fsl:name", v); location.href = u;
+}
+
+// ---- pack picker ----
+async function pickPack(){
+  let list = [];
+  try{ list = await (await fetch(packsBase() + "packs/index.json", {cache:"no-store"})).json(); }catch(e){}
+  if(!Array.isArray(list) || !list.length){
+    dialog(`<h3 style="margin:0">ไม่พบชุดข้อมูล</h3><div>เปิดลิงก์ที่มี <code>?pack=ชื่อชุด&amp;u=ชื่อ</code></div>`);
+    return;
+  }
+  S.user = (qs.get("u") || store.get("fsl:name") || "").replace(NAME_RE, "").slice(0, 30);
+  if(!S.user) S.user = await askName();
+  store.set("fsl:name", S.user);
+  $("chipUser").textContent = "user: " + S.user;
+  // answered per pack for this user (latest row per aid wins)
+  const ans = {};
+  if(S.cfg.endpoint){
+    try{
+      const u = `${S.cfg.endpoint}${S.cfg.endpoint.includes("?") ? "&" : "?"}action=dump&user=${encodeURIComponent(S.user)}&token=${encodeURIComponent(S.cfg.token)}`;
+      const j = await (await fetch(u)).json();
+      const latest = {};
+      for(const r of (j.rows || [])) if(String(r[1]) === S.user) latest[r[2] + "|" + r[3] + "|" + r[4]] = Number(r[5]);
+      for(const [k, c] of Object.entries(latest)) if(c >= 0){ const p = k.split("|")[0]; ans[p] = (ans[p] || 0) + 1; }
+    }catch(e){}
+  }
+  const mine = p => { try{ return Object.keys(JSON.parse(store.get(`fsl:lab:${p}:${S.user}`) || "{}")).length; }catch(e){ return 0; } };
+  dialog(`<h3 style="margin:0">เลือกชุดข้อมูล</h3><div style="font-size:13px;color:var(--muted)">ผู้ตอบ: ${esc(S.user)}</div><div class="packs">` +
+    list.map(p => {
+      const a = S.cfg.endpoint ? (ans[p.id] || 0) : mine(p.id);
+      return `<button data-p="${esc(p.id)}" class="${a >= p.n ? "done" : ""}">${esc(p.id)} — ${esc(a)} / ${esc(p.n)} เม็ด <span style="color:var(--muted)">(${esc(p.role)} · ${esc(p.stratum)})</span></button>`;
+    }).join("") + `</div>`);
+  document.querySelectorAll(".packs button").forEach(b => b.onclick = () => {
+    const u = new URL(location.href); u.searchParams.set("pack", b.dataset.p); u.searchParams.set("u", S.user); location.href = u;
+  });
+}
+
+// ---- boot ----
+async function boot(){
+  $("bPrev").onclick = () => go(S.idx - 1);
+  $("bNext").onclick = () => go(S.idx + 1);
+  $("bTodo").onclick = jumpTodo;
+  $("bSave").onclick = saveNow;
+  $("bCsv").onclick = downloadCsv;
+  $("bUser").onclick = renameUser;
+  $("bHelp").onclick = () => showHelp(false);
+  document.addEventListener("keydown", onKey);
+
+  try{ Object.assign(S.cfg, await (await fetch("config.json", {cache:"no-store"})).json()); }catch(e){}
+  if(qs.get("base")) S.cfg.packsBase = qs.get("base");          // local testing override
+  if(qs.get("endpoint")) S.cfg.endpoint = qs.get("endpoint");   // local testing override
+  if(!S.pack){ updateSyncChip(); return pickPack(); }
+
+  S.user = (qs.get("u") || store.get("fsl:name") || "").replace(NAME_RE, "").slice(0, 30);
+  if(!S.user) S.user = await askName();
+  store.set("fsl:name", S.user);
+  $("chipPack").textContent = "pack: " + S.pack;
+  $("chipUser").textContent = "user: " + S.user;
+
+  let m;
+  try{
+    m = await (await fetch(packUrl("manifest.json"), {cache:"no-store"})).json();
+    if(!m || !Array.isArray(m.items) || !m.items.length) throw new Error("bad manifest");
+  }catch(e){
+    dialog(`<h3 style="margin:0">โหลดชุดข้อมูลไม่ได้</h3><div>pack "${esc(S.pack)}" ไม่มีอยู่ หรือเครือข่ายมีปัญหา</div>`);
+    return;
+  }
+  S.manifest = m; S.items = m.items;
+
+  const box = $("classes");
+  CLASSES.forEach(cl => {
+    const b = document.createElement("button");
+    b.dataset.c = cl.code;
+    b.innerHTML = `${esc(cl.key)} ${esc(cl.label)}${cl.hint ? `<small>${esc(cl.hint)}</small>` : ""}`;
+    b.onclick = () => setLabel(cl.code);
+    box.appendChild(b);
+  });
+  const fb = $("flags");
+  FLAGS.forEach(f => {
+    const b = document.createElement("button");
+    b.dataset.f = f.k; b.title = f.hint;
+    b.textContent = `${f.k} ${f.label}`;
+    b.onclick = () => toggleFlag(f.k);
+    fb.appendChild(b);
+  });
+  const ob = document.createElement("button");
+  ob.id = "bOutline"; ob.textContent = "o เส้นขอบ"; ob.className = "ghost";
+  ob.onclick = () => { S.showOutline = !S.showOutline; render(); };
+  fb.appendChild(ob);
+
+  try{ S.labels = JSON.parse(store.get(lkey()) || "{}"); }catch(e){ S.labels = {}; }
+  try{ S.queue = JSON.parse(store.get(qkey()) || "[]"); }catch(e){ S.queue = []; }
+  const valid = new Set(S.items.map(key));
+  for(const a of Object.keys(S.labels)) if(!valid.has(a)) delete S.labels[a];
+
+  render();
+  if(!store.get(skey())) showHelp(true);
+  await pullRemote();
+
+  const pos = parseInt(store.get(pkey()) || "-1", 10);
+  const first = nextTodo(pos >= 0 && pos < S.items.length ? pos - 1 : S.items.length - 1);
+  S.idx = first >= 0 ? first : Math.max(0, Math.min(pos, S.items.length - 1));
+  S._doneShown = Object.keys(S.labels).length === S.items.length;
+  render();
+  flush();
+}
+boot();
+</script>
+</body>
+</html>
